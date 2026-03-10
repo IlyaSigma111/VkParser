@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import sys
+import re  # ЭТО БЫЛО НУЖНО!
 from datetime import datetime
 
 VK_GROUP = os.environ.get('VK_GROUP', '236551315')
@@ -41,8 +42,8 @@ try:
     selectors = [
         ('div', {'class': 'post'}),
         ('div', {'class': 'wall_post'}),
+        ('div', {'class': 'feed_row'}),
         ('div', {'data-post-id': True}),
-        ('div', {'id': re.compile(r'post|wall')}),
     ]
     
     for name, attrs in selectors:
@@ -59,6 +60,11 @@ try:
                 print(f"  Найдена ссылка: {link['href']}")
     
     print(f"\n✅ Всего ссылок с 'wall': {wall_links}")
+    
+    # Ищем элементы с data-post-id
+    print("\n🆔 ЭЛЕМЕНТЫ С data-post-id:")
+    data_posts = soup.find_all(attrs={'data-post-id': True})
+    print(f"  Найдено: {len(data_posts)}")
     
 except Exception as e:
     print(f"❌ Ошибка: {e}")
