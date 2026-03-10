@@ -2,29 +2,19 @@ name: VK Parser Scheduled
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Каждые 15 минут
-  workflow_dispatch:  # Можно запустить вручную
+    - cron: '*/15 * * * *'
 
 jobs:
   run-parser:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-      
-      - name: Setup Python
-        uses: actions/setup-python@v2
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-      
-      - name: Install dependencies
-        run: |
-          pip install requests beautifulsoup4
-      
-      - name: Run parser
+          python-version: '3.10'
+      - run: pip install requests beautifulsoup4
+      - run: python parser.py --check
         env:
           VK_GROUP: ${{ secrets.VK_GROUP }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHANNEL: ${{ secrets.TG_CHANNEL }}
-        run: |
-          python parser.py --check
