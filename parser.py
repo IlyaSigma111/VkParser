@@ -43,7 +43,7 @@ class VKParser:
             pass
     
     def get_vk_posts(self):
-        """Парсит посты из новой верстки ВК"""
+        """Парсит посты из ВК"""
         self.log(f"Парсинг ВК: https://vk.com/{VK_GROUP}")
         posts = []
         
@@ -57,15 +57,15 @@ class VKParser:
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Ищем посты по data-post-id (новый способ)
+            # Ищем посты
             post_elements = soup.find_all('div', {'data-post-id': True})
-            self.log(f"Найдено постов с data-post-id: {len(post_elements)}")
+            self.log(f"Найдено постов: {len(post_elements)}")
             
-            for post in post_elements[:30]:
+            for post in post_elements[:20]:
                 try:
                     post_id = post.get('data-post-id')
                     
-                    # Текст поста
+                    # Текст
                     text = ""
                     text_elem = post.find('div', class_=re.compile(r'text|Text'))
                     if text_elem:
@@ -87,7 +87,7 @@ class VKParser:
                     })
                     self.log(f"✅ Пост {post_id}: фото={len(photos)}")
                     
-                except Exception as e:
+                except:
                     continue
             
             self.log(f"✅ Всего постов: {len(posts)}")
@@ -129,13 +129,38 @@ class VKParser:
                 return response.status_code == 200
             
             return False
-        except:
+        except Exception as e:
+            self.log(f"Ошибка отправки: {e}", "ERROR")
+            return False
+    
+    def test_telegram(self):
+        """Тест подключения к Telegram"""
+        self.log("🔍 ТЕСТ TELEGRAM")
+        
+        test_text = f"✅ ТЕСТ ОТ ПАРСЕРА\nВремя: {datetime.now().strftime('%H:%M:%S')}"
+        
+        try:
+            url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+            data = {
+                'chat_id': TG_CHANNEL,
+                'text': test_text
+            }
+            response = requests.post(url, json=data, timeout=10)
+            
+            if response.status_code == 200:
+                self.log("✅ ТЕСТ УСПЕШЕН")
+                return True
+            else:
+                self.log(f"❌ Ошибка: {response.status_code}")
+                return False
+        except Exception as e:
+            self.log(f"❌ Ошибка: {e}", "ERROR")
             return False
     
     def catch_up_posts(self):
-        """Догоняет пропущенные"""
+        """Догоняет пропущенные посты"""
         self.log("=" * 50)
-        self.log("ДОГОН ПРОПУЩЕННЫХ")
+        self.log("ДОГОН ПРОПУЩЕННЫХ ПОСТОВ")
         
         posts = self.get_vk_posts()
         if not posts:
@@ -148,22 +173,77 @@ class VKParser:
         for post in posts[:10]:
             if self.send_to_telegram(post):
                 sent += 1
+                self.save_state(post['id'])
                 self.log(f"✅ Отправлен {post['id']}")
-            time.sleep(2)
+                time.sleep(2)
         
         self.log(f"✅ Отправлено: {sent}")
         return sent
+    
+    def check_new_posts(self):
+        """Проверяет новые посты"""
+        self.log("=" * 50)
+        self.log("ПРОВЕРКА НОВЫХ ПОСТОВ")
+        
+        state = self.load_state()
+        posts = self.get_vk_posts()
+        
+        if not posts:
+            self.log("❌ Нет постов")
+            return 0
+        
+        new_posts = []
+        if state.get('first_run'):
+            new_posts = [posts[0]]
+        else:
+            for post in posts:
+                if post['id'] == state.get('last_post_id'):
+                    break
+                new_posts.append(post)
+        
+        self.log(f"📦 Новых постов: {len(new_posts)}")
+        
+        sent = 0
+        for post in reversed(new_posts):
+            if self.send_to_telegram(post):
+                sent += 1
+                self.save_state(post['id'])
+                time.sleep(2)
+        
+        self.log(f"✅ Отправлено: {sent}")
+        return sent
+    
+    def reset_state(self):
+        """Сбрасывает состояние"""
+        self.save_state(None)
+        self.log("🔄 Состояние сброшено")
 
 # ============================================
 # ЗАПУСК
 # ============================================
 if __name__ == "__main__":
     parser = VKParser()
+    parser.log("=" * 50)
     parser.log("🚀 ПАРСЕР ЗАПУЩЕН")
+    parser.log("=" * 50)
+    
+    if not TG_TOKEN:
+        parser.log("❌ НЕТ TG_TOKEN", "ERROR")
+        sys.exit(1)
     
     if len(sys.argv) > 1:
         cmd = sys.argv[1].replace('--', '')
+        parser.log(f"📌 КОМАНДА: {cmd}")
+        
         if cmd == 'catchup':
             parser.catch_up_posts()
+        elif cmd == 'check':
+            parser.check_new_posts()
         elif cmd == 'test':
             parser.test_telegram()
+        elif cmd == 'reset':
+            parser.reset_state()
+        else:
+            parser.log(f"❌ Неизвестная команда: {cmd}")
+    else:
+        parser.check_new_posts()
