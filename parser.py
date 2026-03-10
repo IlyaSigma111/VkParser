@@ -1,51 +1,29 @@
-import requests
-from bs4 import BeautifulSoup
-import os
-import sys
-from datetime import datetime
+name: VK Parser Manual
 
-VK_GROUP = os.environ.get('VK_GROUP', 'rddmnt')
-TG_TOKEN = os.environ.get('TG_TOKEN', '')
-TG_CHANNEL = os.environ.get('TG_CHANNEL', '-1003761499584')
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Команда'
+        required: true
+        type: string
 
-print("=" * 50)
-print(f"🚀 ПАРСЕР ЗАПУЩЕН {datetime.now()}")
-print("=" * 50)
-
-print(f"📌 VK_GROUP: {VK_GROUP}")
-print(f"📌 TG_CHANNEL: {TG_CHANNEL}")
-
-print(f"\n📥 Загружаю https://vk.com/{VK_GROUP}...")
-
-try:
-    # Загружаем страницу
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    response = requests.get(f"https://vk.com/{VK_GROUP}", headers=headers, timeout=15)
-    
-    print(f"📊 Статус: {response.status_code}")
-    print(f"📦 Размер: {len(response.text)} байт")
-    
-    # ПОКАЗЫВАЕМ ПЕРВЫЕ 2000 СИМВОЛОВ HTML
-    print("\n" + "=" * 50)
-    print("ПЕРВЫЕ 2000 СИМВОЛОВ СТРАНИЦЫ:")
-    print("=" * 50)
-    print(response.text[:2000])
-    print("=" * 50)
-    
-    # Ищем посты
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Показываем все классы на странице
-    print("\n📌 УНИКАЛЬНЫЕ КЛАССЫ НА СТРАНИЦЕ:")
-    classes = set()
-    for elem in soup.find_all(class_=True):
-        for cls in elem.get('class', []):
-            classes.add(cls)
-    
-    for cls in sorted(list(classes))[:50]:
-        print(f"  - {cls}")
-    
-except Exception as e:
-    print(f"❌ Ошибка: {e}")
-
-print("\n✅ Парсер завершил работу")
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install requests beautifulsoup4
+      - run: python parser.py --${{ github.event.inputs.command }}
+        env:
+          VK_GROUP: ${{ secrets.VK_GROUP }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHANNEL: ${{ secrets.TG_CHANNEL }}
+      - name: Upload debug.html
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-html
+          path: debug.html
