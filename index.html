@@ -1,245 +1,60 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VK → TG Парсер</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        
-        .header {
-            text-align: center;
-            color: white;
-            margin-bottom: 30px;
-        }
-        
-        .card {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        
-        .btn {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
-            font-weight: 600;
-            cursor: pointer;
-            transition: 0.3s;
-            margin-right: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .btn.success { background: #10b981; color: white; }
-        .btn.warning { background: #f59e0b; color: white; }
-        .btn.danger { background: #ef4444; color: white; }
-        .btn.primary { background: #667eea; color: white; }
-        
-        .status-badge {
-            display: inline-block;
-            padding: 8px 15px;
-            border-radius: 25px;
-            font-size: 0.95em;
-            font-weight: bold;
-        }
-        
-        .status-badge.active { background: #10b981; color: white; }
-        .status-badge.inactive { background: #ef4444; color: white; }
-        
-        .logs {
-            background: #1a1a1a;
-            color: #00ff00;
-            font-family: monospace;
-            padding: 15px;
-            border-radius: 8px;
-            height: 250px;
-            overflow-y: auto;
-        }
-        
-        .log-entry {
-            padding: 5px;
-            border-bottom: 1px solid #333;
-        }
-        
-        .token-display {
-            background: #f1f5f9;
-            padding: 15px;
-            border-radius: 8px;
-            font-family: monospace;
-            word-break: break-all;
-            margin: 15px 0;
-        }
+        body { font-family: Arial; background: #667eea; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #667eea; color: white; border: none; border-radius: 5px; }
+        .logs { background: black; color: #00ff00; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🚀 VK → Telegram Парсер</h1>
-            <p>Репозиторий: <strong>ilyasigma111/VkParser</strong></p>
-        </div>
+        <h2>🚀 VK → TG Парсер</h2>
+        <p>Репозиторий: ilyasigma111/VkParser</p>
         
-        <div class="card">
-            <h3>🔑 ТОКЕН УСТАНОВЛЕН</h3>
-            <div class="token-display">
-                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
-            </div>
-            
-            <div style="display: flex; gap: 15px; margin: 20px 0;">
-                <span class="status-badge" id="tokenStatus">⏳ Проверка...</span>
-                <button class="btn primary" onclick="checkToken()">🔄 Проверить токен</button>
-                <button class="btn" onclick="checkWorkflow()">📁 Проверить workflow</button>
-            </div>
-        </div>
+        <button onclick="run('check')">🔍 Проверить новые</button>
+        <button onclick="run('catchup')">⏪ Догнать</button>
+        <button onclick="run('reset')">🔄 Сброс</button>
         
-        <div class="card">
-            <h3>🎮 УПРАВЛЕНИЕ</h3>
-            
-            <div style="margin-bottom: 20px;">
-                <span class="status-badge" id="parserStatus">⚪ Готов</span>
-                <span style="margin-left: 15px;">Последний запуск: <span id="lastRun">никогда</span></span>
-            </div>
-            
-            <button class="btn success" onclick="runCommand('check')">🔍 Проверить новые</button>
-            <button class="btn warning" onclick="runCommand('catchup')">⏪ Догнать пропущенные</button>
-            <button class="btn danger" onclick="runCommand('reset')">🔄 Сброс состояния</button>
-        </div>
-        
-        <div class="card">
-            <h3>📋 ЛОГИ</h3>
-            <div class="logs" id="logs">
-                <div class="log-entry">🚀 Интерфейс загружен</div>
-            </div>
-            <div style="margin-top: 15px;">
-                <button class="btn" onclick="clearLogs()">🗑 Очистить</button>
-                <a href="https://github.com/ilyasigma111/VkParser/actions" target="_blank" class="btn primary">📊 Открыть Actions</a>
-            </div>
-        </div>
+        <h3>Логи:</h3>
+        <div class="logs" id="logs"></div>
     </div>
-    
+
     <script>
-        const GITHUB_TOKEN = "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";
-        const REPO_NAME = "ilyasigma111/VkParser";
+        const TOKEN = "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";
+        const REPO = "ilyasigma111/VkParser";
         
-        async function checkToken() {
-            const statusEl = document.getElementById('tokenStatus');
+        async function run(cmd) {
+            addLog(`🚀 Запускаю ${cmd}...`);
             
             try {
-                const response = await fetch(`https://api.github.com/repos/${REPO_NAME}`, {
-                    headers: {
-                        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
-                });
-                
-                if (response.ok) {
-                    statusEl.textContent = '✅ ТОКЕН РАБОТАЕТ';
-                    statusEl.className = 'status-badge active';
-                    addLog('✅ GitHub токен валиден', 'success');
-                    
-                    // Проверяем workflow
-                    const wf = await fetch(`https://api.github.com/repos/${REPO_NAME}/actions/workflows`, {
-                        headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
-                    });
-                    
-                    if (wf.ok) {
-                        const data = await wf.json();
-                        addLog(`📊 Найдено workflow: ${data.total_count}`, 'success');
-                    }
-                } else {
-                    statusEl.textContent = '❌ ОШИБКА ТОКЕНА';
-                    statusEl.className = 'status-badge inactive';
-                    addLog(`❌ Ошибка: ${response.status}`, 'error');
-                }
-            } catch (error) {
-                statusEl.textContent = '❌ ОШИБКА';
-                statusEl.className = 'status-badge inactive';
-                addLog(`❌ ${error.message}`, 'error');
-            }
-        }
-        
-        async function checkWorkflow() {
-            try {
-                const response = await fetch(`https://api.github.com/repos/${REPO_NAME}/contents/.github/workflows`, {
-                    headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
-                });
-                
-                if (response.ok) {
-                    const files = await response.json();
-                    addLog(`📁 Найдено файлов: ${files.length}`, 'success');
-                    files.forEach(f => addLog(`   - ${f.name}`, 'info'));
-                } else {
-                    addLog('❌ Папка .github/workflows не найдена', 'error');
-                }
-            } catch (error) {
-                addLog(`❌ ${error.message}`, 'error');
-            }
-        }
-        
-        async function runCommand(command) {
-            addLog(`🚀 Запускаю: ${command}...`, 'info');
-            
-            try {
-                const response = await fetch(`https://api.github.com/repos/${REPO_NAME}/actions/workflows/manual.yml/dispatches`, {
+                const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/manual.yml/dispatches`, {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                        'Authorization': `Bearer ${TOKEN}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        ref: 'main',
-                        inputs: { command: command }
-                    })
+                    body: JSON.stringify({ ref: 'main', inputs: { command: cmd } })
                 });
                 
-                if (response.status === 204) {
-                    addLog(`✅ Команда ${command} запущена`, 'success');
-                    document.getElementById('lastRun').textContent = new Date().toLocaleTimeString();
+                if (res.status === 204) {
+                    addLog(`✅ Команда ${cmd} запущена!`);
+                    addLog(`👀 Смотри: https://github.com/${REPO}/actions`);
                 } else {
-                    addLog(`❌ Ошибка: ${response.status}`, 'error');
+                    addLog(`❌ Ошибка ${res.status}`);
                 }
-            } catch (error) {
-                addLog(`❌ ${error.message}`, 'error');
+            } catch (e) {
+                addLog(`❌ Ошибка`);
             }
         }
         
-        function addLog(msg, type = 'info') {
-            const logs = document.getElementById('logs');
-            const time = new Date().toLocaleTimeString();
-            const prefix = type === 'success' ? '✅ ' : type === 'error' ? '❌ ' : '';
-            
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.innerHTML = `[${time}] ${prefix}${msg}`;
-            logs.insertBefore(entry, logs.firstChild);
+        function addLog(msg) {
+            const d = document.createElement('div');
+            d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            document.getElementById('logs').prepend(d);
         }
-        
-        function clearLogs() {
-            document.getElementById('logs').innerHTML = '<div class="log-entry">🧹 Логи очищены</div>';
-        }
-        
-        window.onload = function() {
-            checkToken();
-            setTimeout(checkWorkflow, 1000);
-        };
     </script>
 </body>
 </html>
