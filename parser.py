@@ -10,7 +10,7 @@ from datetime import datetime
 # ============================================
 # НАСТРОЙКИ
 # ============================================
-VK_GROUP = os.environ.get('VK_GROUP', '236551315')  # ТВОЯ ГРУППА
+VK_GROUP = os.environ.get('VK_GROUP', '236551315')
 TG_TOKEN = os.environ.get('TG_TOKEN', '')
 TG_CHANNEL = os.environ.get('TG_CHANNEL', '-1003761499584')
 
@@ -44,58 +44,64 @@ class VKParser:
     
     def get_vk_posts(self):
         """Парсит посты из ВК"""
-        self.log(f"Парсинг ВК: https://vk.com/public{VK_GROUP}")
+        # Пробуем разные форматы URL
+        urls = [
+            f"https://vk.com/club{VK_GROUP}",  # club236551315
+            f"https://vk.com/public{VK_GROUP}", # public236551315
+            f"https://vk.com/{VK_GROUP}"        # если это короткое имя
+        ]
+        
+        for url in urls:
+            self.log(f"Пробуем: {url}")
+            try:
+                response = self.session.get(url, timeout=10)
+                if response.status_code == 200:
+                    self.log(f"✅ Успешно загружено: {url}")
+                    break
+            except:
+                continue
+        else:
+            self.log("❌ Не удалось загрузить страницу", "ERROR")
+            return []
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Ищем посты
         posts = []
+        post_elements = soup.find_all('div', {'class': 'post'})
+        self.log(f"Найдено постов: {len(post_elements)}")
         
-        try:
-            url = f"https://vk.com/public{VK_GROUP}"
-            response = self.session.get(url, timeout=15)
-            
-            if response.status_code != 200:
-                self.log(f"Ошибка загрузки: {response.status_code}", "ERROR")
-                return []
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Ищем посты
-            post_elements = soup.find_all('div', {'class': 'post'})
-            self.log(f"Найдено постов: {len(post_elements)}")
-            
-            for post in post_elements[:20]:
-                try:
-                    # ID поста
-                    link = post.find('a', class_='post_link')
-                    if not link:
-                        continue
-                    
-                    post_id = link.get('href', '').split('wall')[-1]
-                    
-                    # Текст
-                    text = post.find('div', class_='wall_post_text')
-                    text = text.text if text else ''
-                    
-                    # Фото
-                    photos = []
-                    for img in post.find_all('img'):
-                        src = img.get('src', '')
-                        if 'vk.com' in src or 'userapi.com' in src:
-                            photos.append(src)
-                    
-                    posts.append({
-                        'id': post_id,
-                        'text': text,
-                        'photos': photos[:10]
-                    })
-                    self.log(f"✅ Пост {post_id}: фото={len(photos)}")
-                    
-                except Exception as e:
+        for post in post_elements[:20]:
+            try:
+                # ID поста
+                link = post.find('a', class_='post_link')
+                if not link:
                     continue
-            
-            self.log(f"✅ Всего постов: {len(posts)}")
-            
-        except Exception as e:
-            self.log(f"❌ Ошибка: {e}", "ERROR")
+                
+                post_id = link.get('href', '').split('wall')[-1]
+                
+                # Текст
+                text = post.find('div', class_='wall_post_text')
+                text = text.text if text else ''
+                
+                # Фото
+                photos = []
+                for img in post.find_all('img'):
+                    src = img.get('src', '')
+                    if 'vk.com' in src or 'userapi.com' in src:
+                        photos.append(src)
+                
+                posts.append({
+                    'id': post_id,
+                    'text': text,
+                    'photos': photos[:10]
+                })
+                self.log(f"✅ Пост {post_id}: фото={len(photos)}")
+                
+            except Exception as e:
+                continue
         
+        self.log(f"✅ Всего постов: {len(posts)}")
         return posts
     
     def send_to_telegram(self, post):
