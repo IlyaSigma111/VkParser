@@ -1,59 +1,153 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>VK → TG Парсер</title>
     <style>
-        body { font-family: Arial; background: #667eea; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 15px; }
-        button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #667eea; color: white; border: none; border-radius: 5px; }
-        .logs { background: black; color: #00ff00; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 30px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+        }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 10px;
+            margin: 10px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn-green { background: #10b981; }
+        .btn-orange { background: #f59e0b; }
+        .logs {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 12px;
+            height: 250px;
+            overflow-y: auto;
+            font-family: monospace;
+            margin: 20px 0;
+        }
+        .log-entry { padding: 5px; border-bottom: 1px solid #333; }
+        .warning {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>🚀 VK → TG Парсер</h2>
-        <p>Репозиторий: ilyasigma111/VkParser</p>
+        <h1>🚀 VK → TG Парсер</h1>
         
-        <button onclick="run('check')">🔍 Проверить новые</button>
-        <button onclick="run('catchup')">⏪ Догнать</button>
-        <button onclick="run('reset')">🔄 Сброс</button>
+        <div class="warning">
+            <strong>⚠️ GitHub нашел токен и заблокирует его!</strong><br>
+            <p>Сейчас введем токен через поле - так он не попадет в код.</p>
+        </div>
         
-        <h3>Логи:</h3>
-        <div class="logs" id="logs"></div>
+        <div style="margin: 20px 0;">
+            <input type="password" id="tokenInput" 
+                   style="width: 100%; padding: 15px; font-size: 16px; border-radius: 8px; border: 2px solid #667eea;" 
+                   placeholder="Вставь GitHub токен сюда">
+            <button class="btn" onclick="saveToken()" style="margin-top: 10px;">💾 Сохранить токен</button>
+        </div>
+        
+        <div style="text-align: center;">
+            <button class="btn btn-green" onclick="runCommand('check')">🔍 ПРОВЕРИТЬ НОВЫЕ</button>
+            <button class="btn btn-orange" onclick="runCommand('catchup')">⏪ ДОГНАТЬ</button>
+            <button class="btn" onclick="runCommand('reset')">🔄 СБРОС</button>
+        </div>
+        
+        <div class="logs" id="logs">
+            <div class="log-entry">🚀 Введи токен в поле выше</div>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <a href="https://github.com/ilyasigma111/VkParser/actions" target="_blank">📊 Открыть Actions</a>
+        </div>
     </div>
-
+    
     <script>
-        const TOKEN = "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";
         const REPO = "ilyasigma111/VkParser";
+        let TOKEN = localStorage.getItem('github_token') || '';
         
-        async function run(cmd) {
-            addLog(`🚀 Запускаю ${cmd}...`);
+        if (TOKEN) {
+            document.getElementById('tokenInput').value = TOKEN;
+            addLog('✅ Токен загружен из localStorage');
+        }
+        
+        function saveToken() {
+            TOKEN = document.getElementById('tokenInput').value;
+            if (TOKEN) {
+                localStorage.setItem('github_token', TOKEN);
+                addLog('✅ Токен сохранен в браузере');
+            } else {
+                addLog('❌ Введи токен');
+            }
+        }
+        
+        async function runCommand(cmd) {
+            if (!TOKEN) {
+                addLog('❌ Сначала введи токен');
+                return;
+            }
+            
+            addLog(`🚀 Запускаю: ${cmd}...`);
             
             try {
-                const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/manual.yml/dispatches`, {
+                const response = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/manual.yml/dispatches`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${TOKEN}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ ref: 'main', inputs: { command: cmd } })
+                    body: JSON.stringify({
+                        ref: 'main',
+                        inputs: { command: cmd }
+                    })
                 });
                 
-                if (res.status === 204) {
+                if (response.status === 204) {
                     addLog(`✅ Команда ${cmd} запущена!`);
-                    addLog(`👀 Смотри: https://github.com/${REPO}/actions`);
                 } else {
-                    addLog(`❌ Ошибка ${res.status}`);
+                    addLog(`❌ Ошибка: ${response.status}`);
+                    if (response.status === 401) {
+                        addLog('💡 Токен не работает - создай новый');
+                    } else if (response.status === 403) {
+                        addLog('💡 Нет прав доступа');
+                    } else if (response.status === 404) {
+                        addLog('💡 Файл manual.yml не найден');
+                    }
                 }
-            } catch (e) {
-                addLog(`❌ Ошибка`);
+            } catch (error) {
+                addLog(`❌ Ошибка: ${error.message}`);
             }
         }
         
         function addLog(msg) {
-            const d = document.createElement('div');
-            d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            document.getElementById('logs').prepend(d);
+            const logs = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${time}] ${msg}`;
+            logs.insertBefore(entry, logs.firstChild);
         }
     </script>
 </body>
