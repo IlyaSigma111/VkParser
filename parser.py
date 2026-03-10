@@ -10,7 +10,7 @@ from datetime import datetime
 # НАСТРОЙКИ
 # ============================================
 VK_TOKEN = "vk1.a.khnFXow17S6vjHNn8_Za-VOcTV7GHFWBSAHG6Ehh52dNZZ2Tb4LncLZYPDmV2N9t_DO00n1pWS5cnrzaVdqGuhmKrxeWbL0FwUFCvrsset1HIRqpkxihvvwhxKKpVCN0oPXMPh19kxDbRjc9jS8EZA2-kEf5Zq5LVSGSjUh5w5l4_UegC0XZ1yI_XpMXcN9fjOs4XyeDlEfptx5MQMUecQ"
-VK_GROUP = "rddmnt"  # Движение Первых
+VK_GROUP = "rddmnt"
 TG_TOKEN = os.environ.get('TG_TOKEN', '8773397643:AAHOe2bn7XrzPeZ3uzNgmgBh1R0knyYccJ4')
 TG_CHANNEL = os.environ.get('TG_CHANNEL', '-1003761499584')
 
@@ -39,7 +39,7 @@ class VKParser:
         """Преобразует ссылки вида [id123|Имя] в обычный текст"""
         if not text:
             return text
-            
+        
         # Паттерн для [id123|Текст]
         pattern = r'\[(id\d+)\|([^\]]+)\]'
         text = re.sub(pattern, r'\2 (id\1)', text)
@@ -82,7 +82,6 @@ class VKParser:
         """Получает посты через API ВК"""
         self.log(f"Запрос постов для группы {VK_GROUP}")
         
-        # Определяем owner_id
         if str(VK_GROUP).isdigit():
             owner_id = f"-{VK_GROUP}"
         else:
@@ -109,11 +108,9 @@ class VKParser:
             
             formatted_posts = []
             for post in posts:
-                # Текст с очисткой ссылок
                 text = post.get('text', '')
                 text = self.clean_vk_links(text)
                 
-                # Медиа файлы
                 photos = []
                 videos = []
                 links = []
@@ -131,37 +128,26 @@ class VKParser:
                             video_id = video['id']
                             video_owner = video['owner_id']
                             
-                            # Получаем доп инфо о видео
                             video_info = self.get_video_info(video_owner, video_id)
                             
                             if video_info:
                                 title = video_info['title']
-                                player = video_info['player']
                                 duration = video_info['duration']
                                 duration_str = self.format_duration(duration)
-                                
-                                # Формируем ссылку на видео
                                 video_url = f"https://vk.com/video{video_owner}_{video_id}"
                                 
                                 videos.append({
                                     'title': title,
                                     'url': video_url,
-                                    'player': player,
-                                    'duration': duration_str,
-                                    'owner_id': video_owner,
-                                    'id': video_id
+                                    'duration': duration_str
                                 })
                             else:
-                                # Если не получили инфо, хотя бы ссылку дадим
                                 video_url = f"https://vk.com/video{video_owner}_{video_id}"
                                 title = video.get('title', 'Видео')
                                 videos.append({
                                     'title': title,
                                     'url': video_url,
-                                    'player': '',
-                                    'duration': '??:??',
-                                    'owner_id': video_owner,
-                                    'id': video_id
+                                    'duration': '??:??'
                                 })
                         
                         elif attach['type'] == 'link':
@@ -176,7 +162,6 @@ class VKParser:
                             doc_url = doc.get('url', '')
                             docs.append(f"📎 {doc_title}: {doc_url}")
                 
-                # Формируем пост
                 post_data = {
                     'id': post['id'],
                     'date': post['date'],
@@ -189,7 +174,6 @@ class VKParser:
                 
                 formatted_posts.append(post_data)
                 
-                # Логируем найденные медиа
                 media_info = []
                 if photos: media_info.append(f"📸 {len(photos)}")
                 if videos: media_info.append(f"🎬 {len(videos)}")
@@ -206,7 +190,7 @@ class VKParser:
             return []
     
     def send_to_telegram(self, post):
-        """Отправляет пост в Telegram с полной поддержкой видео"""
+        """Отправляет пост в Telegram - ИСПРАВЛЕНО"""
         try:
             # Форматируем дату
             date_str = datetime.fromtimestamp(post['date']).strftime('%d.%m.%Y %H:%M')
@@ -238,7 +222,12 @@ class VKParser:
             
             full_text = "\n\n".join(text_parts)
             
-            # Если есть фото
+            # ========== ИСПРАВЛЕНИЕ БАГА ==========
+            # Проверяем длину текста
+            if len(full_text) > 4096:
+                self.log(f"⚠️ Пост слишком длинный ({len(full_text)} символов), нужно разбить")
+            
+            # Если есть фото - отправляем альбомом
             if post['photos']:
                 media = []
                 for i, photo in enumerate(post['photos'][:10]):
@@ -248,10 +237,16 @@ class VKParser:
                     }
                     # Подпись только к первому фото
                     if i == 0:
-                        caption = full_text[:1024]
-                        media_item['caption'] = caption
+                        # Если текст слишком длинный для подписи
+                        if len(full_text) > 1024:
+                            # Отправляем фото с краткой подписью
+                            short_caption = f"📅 {date_str}\n📸 {len(post['photos'])} фото\n🆔 Пост {post['id']}"
+                            media_item['caption'] = short_caption[:1024]
+                        else:
+                            media_item['caption'] = full_text[:1024]
                     media.append(media_item)
                 
+                # Отправляем фото
                 url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMediaGroup"
                 data = {
                     'chat_id': TG_CHANNEL,
@@ -261,45 +256,106 @@ class VKParser:
                 response = requests.post(url, data=data, timeout=30)
                 
                 if response.status_code == 200:
-                    self.log(f"✅ Отправлено {len(post['photos'])} фото и медиа")
+                    self.log(f"✅ Отправлено {len(post['photos'])} фото")
                     
-                    # Если есть еще текст после фото, отправляем отдельно
+                    # Если есть длинный текст, отправляем его отдельно
                     if len(full_text) > 1024:
                         time.sleep(2)
-                        remaining_text = full_text[1024:]
-                        self.send_text_only(remaining_text)
+                        self.log("📤 Отправка полного текста отдельно")
+                        return self.send_text_only(full_text, force_split=False)
                     
                     return True
                 else:
                     self.log(f"❌ Ошибка фото: {response.status_code}")
-                    # Пробуем отправить как текст
-                    return self.send_text_only(full_text)
+                    return self.send_text_only(full_text, force_split=False)
             
-            # Только текст (или видео без фото)
-            return self.send_text_only(full_text)
+            # Только текст
+            return self.send_text_only(full_text, force_split=False)
             
         except Exception as e:
             self.log(f"❌ Ошибка отправки: {e}")
             return False
     
-    def send_text_only(self, text):
-        """Отправляет только текст с разбивкой"""
+    def send_text_only(self, text, force_split=False):
+        """Отправляет только текст - УМНАЯ РАЗБИВКА"""
         try:
             url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
             
-            # Разбиваем длинный текст
-            if len(text) > 4096:
-                parts = [text[i:i+4096] for i in range(0, len(text), 4096)]
-                for i, part in enumerate(parts):
-                    data = {'chat_id': TG_CHANNEL, 'text': part}
-                    response = requests.post(url, json=data, timeout=30)
-                    self.log(f"📤 Часть {i+1}/{len(parts)}: {response.status_code}")
-                    time.sleep(1)
-                return True
-            else:
+            # Проверяем длину
+            text_len = len(text)
+            self.log(f"📊 Длина текста: {text_len} символов")
+            
+            # Если текст не превышает лимит - отправляем целиком
+            if text_len <= 4096:
                 data = {'chat_id': TG_CHANNEL, 'text': text}
                 response = requests.post(url, json=data, timeout=30)
-                return response.status_code == 200
+                if response.status_code == 200:
+                    self.log("✅ Текст отправлен целиком")
+                    return True
+                else:
+                    self.log(f"❌ Ошибка: {response.status_code}")
+                    return False
+            
+            # Если текст слишком длинный - разбиваем по смыслу
+            self.log(f"⚠️ Текст длинный, разбиваем на части")
+            
+            # Разбиваем по абзацам
+            paragraphs = text.split('\n\n')
+            current_part = ""
+            parts = []
+            
+            for para in paragraphs:
+                # Если абзац сам по себе длинный
+                if len(para) > 4000:
+                    # Разбиваем длинный абзац на предложения
+                    sentences = para.split('. ')
+                    for sent in sentences:
+                        if len(current_part) + len(sent) + 2 < 4000:
+                            if current_part:
+                                current_part += ". " + sent
+                            else:
+                                current_part = sent
+                        else:
+                            if current_part:
+                                parts.append(current_part)
+                            current_part = sent
+                else:
+                    # Обычный абзац
+                    if len(current_part) + len(para) + 2 < 4000:
+                        if current_part:
+                            current_part += "\n\n" + para
+                        else:
+                            current_part = para
+                    else:
+                        if current_part:
+                            parts.append(current_part)
+                        current_part = para
+            
+            if current_part:
+                parts.append(current_part)
+            
+            self.log(f"📦 Текст разбит на {len(parts)} частей")
+            
+            # Отправляем части
+            for i, part in enumerate(parts, 1):
+                if i == 1:
+                    # Первая часть с датой
+                    part_text = part
+                else:
+                    # Последующие части с пометкой
+                    part_text = f"📌 Продолжение ({i}/{len(parts)}):\n\n{part}"
+                
+                data = {'chat_id': TG_CHANNEL, 'text': part_text[:4096]}
+                response = requests.post(url, json=data, timeout=30)
+                
+                if response.status_code == 200:
+                    self.log(f"✅ Часть {i}/{len(parts)} отправлена")
+                else:
+                    self.log(f"❌ Ошибка части {i}: {response.status_code}")
+                
+                time.sleep(1)  # Пауза между частями
+            
+            return True
                 
         except Exception as e:
             self.log(f"❌ Ошибка отправки текста: {e}")
@@ -320,10 +376,9 @@ class VKParser:
         state = self.load_state()
         self.log(f"💾 Последний сохраненный пост: {state['last_post_id']}")
         
-        # Определяем новые посты
         new_posts = []
         if state.get('first_run') or not state['last_post_id']:
-            new_posts = posts[:5]  # При первом запуске берем 5 последних
+            new_posts = posts[:5]
             self.log("🆕 Первый запуск - беру 5 последних")
         else:
             for post in posts:
@@ -337,14 +392,12 @@ class VKParser:
             self.log("✨ Нет новых постов")
             return
         
-        # Статистика по медиа
         total_photos = sum(len(p['photos']) for p in new_posts)
         total_videos = sum(len(p['videos']) for p in new_posts)
         total_links = sum(len(p['links']) for p in new_posts)
         
         self.log(f"📊 Статистика: 📸 {total_photos} фото, 🎬 {total_videos} видео, 🔗 {total_links} ссылок")
         
-        # Отправляем в хронологическом порядке
         sent = 0
         for i, post in enumerate(reversed(new_posts), 1):
             post_date = datetime.fromtimestamp(post['date']).strftime('%d.%m.%Y %H:%M')
@@ -358,7 +411,7 @@ class VKParser:
                 self.log(f"❌ Ошибка отправки поста {post['id']}")
             
             if i < len(new_posts):
-                time.sleep(3)  # Пауза между постами
+                time.sleep(3)
         
         self.log(f"✅ Отправлено: {sent} из {len(new_posts)}")
     
@@ -382,7 +435,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         cmd = sys.argv[1].replace('--', '')
         if cmd == 'catchup':
-            parser.catch_up(20)  # Догон 20 постов
+            parser.catch_up(20)
         elif cmd == 'test':
             parser.test()
         else:
