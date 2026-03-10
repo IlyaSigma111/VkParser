@@ -162,14 +162,28 @@ class VKParser:
                             doc_url = doc.get('url', '')
                             docs.append(f"📎 {doc_title}: {doc_url}")
                 
+                # Формируем полный текст поста
+                full_text = text
+                
+                # Добавляем видео в текст
+                if videos:
+                    full_text += "\n\n🎬 **Видео:**\n"
+                    for video in videos:
+                        full_text += f"• {video['title']} ({video['duration']})\n{video['url']}\n\n"
+                
+                # Добавляем ссылки в текст
+                if links:
+                    full_text += "\n🔗 **Ссылки:**\n" + "\n".join(links) + "\n"
+                
+                # Добавляем документы в текст
+                if docs:
+                    full_text += "\n📎 **Документы:**\n" + "\n".join(docs) + "\n"
+                
                 post_data = {
                     'id': post['id'],
                     'date': post['date'],
-                    'text': text,
-                    'photos': photos[:10],
-                    'videos': videos,
-                    'links': links,
-                    'docs': docs
+                    'text': full_text.strip(),
+                    'photos': photos[:10]
                 }
                 
                 formatted_posts.append(post_data)
@@ -190,44 +204,15 @@ class VKParser:
             return []
     
     def send_to_telegram(self, post):
-        """Отправляет пост в Telegram - ИСПРАВЛЕНО"""
+        """Отправляет пост в Telegram - ФОТО ВМЕСТЕ С ТЕКСТОМ"""
         try:
             # Форматируем дату
             date_str = datetime.fromtimestamp(post['date']).strftime('%d.%m.%Y %H:%M')
             
-            # Собираем текст
-            text_parts = [f"📅 {date_str}"]
+            # Полный текст с датой
+            full_text = f"📅 {date_str}\n\n{post['text']}"
             
-            if post['text']:
-                text_parts.append(post['text'])
-            
-            # Добавляем видео
-            if post['videos']:
-                text_parts.append("\n🎬 **Видео:**")
-                for video in post['videos']:
-                    duration = video.get('duration', '??:??')
-                    title = video.get('title', 'Видео')
-                    url = video.get('url', '')
-                    text_parts.append(f"• {title} ({duration})\n  {url}")
-            
-            # Добавляем ссылки
-            if post['links']:
-                text_parts.append("\n🔗 **Ссылки:**")
-                text_parts.extend(post['links'])
-            
-            # Добавляем документы
-            if post['docs']:
-                text_parts.append("\n📎 **Документы:**")
-                text_parts.extend(post['docs'])
-            
-            full_text = "\n\n".join(text_parts)
-            
-            # ========== ИСПРАВЛЕНИЕ БАГА ==========
-            # Проверяем длину текста
-            if len(full_text) > 4096:
-                self.log(f"⚠️ Пост слишком длинный ({len(full_text)} символов), нужно разбить")
-            
-            # Если есть фото - отправляем альбомом
+            # Если есть фото - отправляем альбомом с подписью
             if post['photos']:
                 media = []
                 for i, photo in enumerate(post['photos'][:10]):
@@ -235,55 +220,73 @@ class VKParser:
                         'type': 'photo',
                         'media': photo
                     }
-                    # Подпись только к первому фото
+                    # Подпись ТОЛЬКО к первому фото и со ВСЕМ текстом
                     if i == 0:
-                        # Если текст слишком длинный для подписи
+                        # Если текст слишком длинный для подписи (лимит 1024)
                         if len(full_text) > 1024:
-                            # Отправляем фото с краткой подписью
-                            short_caption = f"📅 {date_str}\n📸 {len(post['photos'])} фото\n🆔 Пост {post['id']}"
-                            media_item['caption'] = short_caption[:1024]
+                            # Берем первую часть текста
+                            caption = full_text[:1024]
+                            media_item['caption'] = caption
+                            
+                            # Отправляем фото
+                            url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMediaGroup"
+                            data = {
+                                'chat_id': TG_CHANNEL,
+                                'media': json.dumps(media)
+                            }
+                            
+                            response = requests.post(url, data=data, timeout=30)
+                            
+                            if response.status_code == 200:
+                                self.log(f"✅ Отправлено {len(post['photos'])} фото с частью текста")
+                                
+                                # Отправляем остаток текста отдельно
+                                remaining_text = full_text[1024:]
+                                if remaining_text.strip():
+                                    time.sleep(2)
+                                    self.log("📤 Отправка остатка текста")
+                                    return self.send_text_only(remaining_text)
+                            else:
+                                self.log(f"❌ Ошибка фото: {response.status_code}")
+                                return self.send_text_only(full_text)
                         else:
-                            media_item['caption'] = full_text[:1024]
-                    media.append(media_item)
+                            # Текст помещается в подпись
+                            media_item['caption'] = full_text
+                            media.append(media_item)
+                            
+                            url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMediaGroup"
+                            data = {
+                                'chat_id': TG_CHANNEL,
+                                'media': json.dumps(media)
+                            }
+                            
+                            response = requests.post(url, data=data, timeout=30)
+                            
+                            if response.status_code == 200:
+                                self.log(f"✅ Отправлено {len(post['photos'])} фото с полным текстом")
+                                return True
+                            else:
+                                self.log(f"❌ Ошибка фото: {response.status_code}")
+                                return self.send_text_only(full_text)
+                    else:
+                        media.append(media_item)
                 
-                # Отправляем фото
-                url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMediaGroup"
-                data = {
-                    'chat_id': TG_CHANNEL,
-                    'media': json.dumps(media)
-                }
-                
-                response = requests.post(url, data=data, timeout=30)
-                
-                if response.status_code == 200:
-                    self.log(f"✅ Отправлено {len(post['photos'])} фото")
-                    
-                    # Если есть длинный текст, отправляем его отдельно
-                    if len(full_text) > 1024:
-                        time.sleep(2)
-                        self.log("📤 Отправка полного текста отдельно")
-                        return self.send_text_only(full_text, force_split=False)
-                    
-                    return True
-                else:
-                    self.log(f"❌ Ошибка фото: {response.status_code}")
-                    return self.send_text_only(full_text, force_split=False)
+                return True
             
-            # Только текст
-            return self.send_text_only(full_text, force_split=False)
+            # Если нет фото - просто текст
+            return self.send_text_only(full_text)
             
         except Exception as e:
             self.log(f"❌ Ошибка отправки: {e}")
             return False
     
-    def send_text_only(self, text, force_split=False):
-        """Отправляет только текст - УМНАЯ РАЗБИВКА"""
+    def send_text_only(self, text):
+        """Отправляет только текст"""
         try:
             url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
             
             # Проверяем длину
             text_len = len(text)
-            self.log(f"📊 Длина текста: {text_len} символов")
             
             # Если текст не превышает лимит - отправляем целиком
             if text_len <= 4096:
@@ -296,53 +299,32 @@ class VKParser:
                     self.log(f"❌ Ошибка: {response.status_code}")
                     return False
             
-            # Если текст слишком длинный - разбиваем по смыслу
-            self.log(f"⚠️ Текст длинный, разбиваем на части")
+            # Если текст слишком длинный - разбиваем
+            self.log(f"⚠️ Текст длинный ({text_len} символов), разбиваем")
             
             # Разбиваем по абзацам
-            paragraphs = text.split('\n\n')
-            current_part = ""
             parts = []
+            current_part = ""
             
-            for para in paragraphs:
-                # Если абзац сам по себе длинный
-                if len(para) > 4000:
-                    # Разбиваем длинный абзац на предложения
-                    sentences = para.split('. ')
-                    for sent in sentences:
-                        if len(current_part) + len(sent) + 2 < 4000:
-                            if current_part:
-                                current_part += ". " + sent
-                            else:
-                                current_part = sent
-                        else:
-                            if current_part:
-                                parts.append(current_part)
-                            current_part = sent
-                else:
-                    # Обычный абзац
-                    if len(current_part) + len(para) + 2 < 4000:
-                        if current_part:
-                            current_part += "\n\n" + para
-                        else:
-                            current_part = para
+            for paragraph in text.split('\n\n'):
+                if len(current_part) + len(paragraph) + 2 < 4096:
+                    if current_part:
+                        current_part += "\n\n" + paragraph
                     else:
-                        if current_part:
-                            parts.append(current_part)
-                        current_part = para
+                        current_part = paragraph
+                else:
+                    if current_part:
+                        parts.append(current_part)
+                    current_part = paragraph
             
             if current_part:
                 parts.append(current_part)
             
-            self.log(f"📦 Текст разбит на {len(parts)} частей")
-            
             # Отправляем части
             for i, part in enumerate(parts, 1):
                 if i == 1:
-                    # Первая часть с датой
                     part_text = part
                 else:
-                    # Последующие части с пометкой
                     part_text = f"📌 Продолжение ({i}/{len(parts)}):\n\n{part}"
                 
                 data = {'chat_id': TG_CHANNEL, 'text': part_text[:4096]}
@@ -353,7 +335,7 @@ class VKParser:
                 else:
                     self.log(f"❌ Ошибка части {i}: {response.status_code}")
                 
-                time.sleep(1)  # Пауза между частями
+                time.sleep(1)
             
             return True
                 
@@ -393,10 +375,7 @@ class VKParser:
             return
         
         total_photos = sum(len(p['photos']) for p in new_posts)
-        total_videos = sum(len(p['videos']) for p in new_posts)
-        total_links = sum(len(p['links']) for p in new_posts)
-        
-        self.log(f"📊 Статистика: 📸 {total_photos} фото, 🎬 {total_videos} видео, 🔗 {total_links} ссылок")
+        self.log(f"📊 Статистика: 📸 {total_photos} фото")
         
         sent = 0
         for i, post in enumerate(reversed(new_posts), 1):
@@ -424,8 +403,8 @@ class VKParser:
             post = posts[0]
             post_date = datetime.fromtimestamp(post['date']).strftime('%d.%m.%Y')
             self.log(f"📝 Пример поста от {post_date}:")
-            self.log(f"   {post['text'][:100]}...")
-            self.log(f"   📸 Фото: {len(post['photos'])}, 🎬 Видео: {len(post['videos'])}")
+            self.log(f"   Текст: {post['text'][:100]}...")
+            self.log(f"   📸 Фото: {len(post['photos'])}")
             return True
         return False
 
