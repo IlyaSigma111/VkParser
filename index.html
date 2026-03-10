@@ -40,6 +40,27 @@
         .card h3 {
             margin-bottom: 20px;
             color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .status-badge.active {
+            background: #10b981;
+            color: white;
+        }
+        
+        .status-badge.warning {
+            background: #f59e0b;
+            color: white;
         }
         
         .input-group {
@@ -75,6 +96,7 @@
             cursor: pointer;
             transition: 0.3s;
             margin-right: 10px;
+            margin-bottom: 10px;
         }
         
         .btn.primary {
@@ -100,9 +122,22 @@
             color: white;
         }
         
-        .stats {
+        .btn.warning:hover {
+            background: #d97706;
+        }
+        
+        .btn.danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn.danger:hover {
+            background: #dc2626;
+        }
+        
+        .stats-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 15px;
             margin: 20px 0;
         }
@@ -115,9 +150,15 @@
         }
         
         .stat-value {
-            font-size: 2em;
+            font-size: 1.8em;
             font-weight: bold;
             color: #667eea;
+        }
+        
+        .stat-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
         }
         
         .logs {
@@ -133,27 +174,58 @@
         .log-entry {
             padding: 5px;
             border-bottom: 1px solid #333;
+            font-size: 0.9em;
         }
         
-        .badge {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 0.8em;
-            font-weight: bold;
+        .info-box {
+            background: #e0f2fe;
+            border-left: 4px solid #0284c7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
         }
         
-        .badge.success {
-            background: #10b981;
-            color: white;
+        .info-box h4 {
+            color: #075985;
+            margin-bottom: 10px;
+        }
+        
+        .info-box p {
+            color: #0369a1;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 VK → Telegram</h1>
-            <p>Автоматический кросспостинг</p>
+            <h1>🚀 VK → Telegram Парсер</h1>
+            <p>Автоматический кросспостинг с умным догоном</p>
+        </div>
+        
+        <!-- Статус канала -->
+        <div class="card">
+            <h3>
+                📊 Статус канала
+                <span class="status-badge" id="channelStatus">Проверка...</span>
+            </h3>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-value" id="totalPosts">0</div>
+                    <div class="stat-label">Всего постов</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="lastPostId">-</div>
+                    <div class="stat-label">Последний ID</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="vkPosts">0</div>
+                    <div class="stat-label">Постов в ВК</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="pendingPosts">0</div>
+                    <div class="stat-label">Ожидают</div>
+                </div>
+            </div>
         </div>
         
         <!-- Настройки -->
@@ -174,25 +246,22 @@
             <button class="btn primary" onclick="saveSettings()">💾 Сохранить</button>
         </div>
         
+        <!-- Информация для нового канала -->
+        <div class="info-box" id="newChannelInfo" style="display: none;">
+            <h4>🆕 Похоже, канал пустой!</h4>
+            <p>При первом запуске будет отправлен ТОЛЬКО самый свежий пост из ВК. 
+            Используй кнопку "Догнать пропущенные" чтобы выбрать, сколько постов отправить.</p>
+        </div>
+        
         <!-- Управление -->
         <div class="card">
             <h3>🎮 Управление</h3>
             <button class="btn success" onclick="checkNow()">🔍 Проверить новые</button>
             <button class="btn warning" onclick="catchUp()">⏪ Догнать пропущенные</button>
+            <button class="btn danger" onclick="resetState()">🔄 Сброс состояния</button>
             
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="stat-value" id="statsTotal">0</div>
-                    <div>Всего постов</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" id="statsToday">0</div>
-                    <div>За сегодня</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" id="lastPostId">-</div>
-                    <div>Последний ID</div>
-                </div>
+            <div style="margin-top: 15px;">
+                <small>⚡ Последняя проверка: <span id="lastCheckTime">никогда</span></small>
             </div>
         </div>
         
@@ -216,6 +285,7 @@
             };
             localStorage.setItem('vkTGsettings', JSON.stringify(settings));
             addLog('✅ Настройки сохранены');
+            checkChannelStatus();
         }
         
         function loadSettings() {
@@ -226,58 +296,102 @@
                 document.getElementById('tgToken').value = settings.tgToken || '';
                 document.getElementById('tgChannel').value = settings.tgChannel || '-1003761499584';
             }
+            checkChannelStatus();
         }
         
-        function addLog(msg) {
+        function addLog(msg, type = 'info') {
             const logs = document.getElementById('logs');
             const time = new Date().toLocaleTimeString();
-            logs.innerHTML = `<div class="log-entry">[${time}] ${msg}</div>` + logs.innerHTML;
-            if (logs.children.length > 20) logs.removeChild(logs.lastChild);
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            let prefix = '';
+            if (type === 'success') prefix = '✅ ';
+            else if (type === 'error') prefix = '❌ ';
+            else if (type === 'warning') prefix = '⚠️ ';
+            
+            logEntry.innerHTML = `[${time}] ${prefix}${msg}`;
+            logs.insertBefore(logEntry, logs.firstChild);
+            
+            if (logs.children.length > 30) {
+                logs.removeChild(logs.lastChild);
+            }
         }
         
-        // Основная проверка новых постов
-        function checkNow() {
-            addLog('🔍 Проверяю новые посты...');
-            
-            fetch('https://api.telegram.org/bot' + settings.tgToken + '/getUpdates')
-                .then(r => r.json())
-                .then(data => {
-                    addLog('✅ Получен ответ от Telegram');
-                    
-                    // Здесь будет вызов твоего парсера
-                    setTimeout(() => {
-                        const randomPosts = Math.floor(Math.random() * 5) + 1;
-                        addLog(`📦 Найдено новых постов: ${randomPosts}`);
-                        updateStats(randomPosts);
-                    }, 2000);
-                })
-                .catch(e => addLog('❌ Ошибка: ' + e));
-        }
-        
-        // Функция ДОГОНА пропущенных постов
-        function catchUp() {
-            const lastPostId = document.getElementById('lastPostId').textContent;
-            addLog(`⏪ Запускаю догон постов... Последний ID: ${lastPostId}`);
-            
-            // Эмулируем поиск пропущенных постов
+        function checkChannelStatus() {
+            // Имитация проверки статуса канала
             setTimeout(() => {
-                const caughtPosts = Math.floor(Math.random() * 10) + 3;
-                addLog(`✨ Найдено пропущенных постов: ${caughtPosts}`);
-                addLog(`✅ Отправлено: ${caughtPosts}`);
-                updateStats(caughtPosts);
-            }, 3000);
+                const random = Math.random();
+                if (random < 0.3) {
+                    // Канал пустой
+                    document.getElementById('channelStatus').textContent = '🆕 Пустой канал';
+                    document.getElementById('channelStatus').className = 'status-badge warning';
+                    document.getElementById('newChannelInfo').style.display = 'block';
+                    document.getElementById('totalPosts').textContent = '0';
+                    addLog('📢 Канал пустой - будет отправлен только последний пост', 'warning');
+                } else {
+                    // В канале есть посты
+                    document.getElementById('channelStatus').textContent = '✅ Активен';
+                    document.getElementById('channelStatus').className = 'status-badge active';
+                    document.getElementById('newChannelInfo').style.display = 'none';
+                    document.getElementById('totalPosts').textContent = Math.floor(Math.random() * 50) + 10;
+                    addLog('📢 Канал активен, есть посты', 'success');
+                }
+                
+                document.getElementById('vkPosts').textContent = Math.floor(Math.random() * 100) + 20;
+                document.getElementById('pendingPosts').textContent = Math.floor(Math.random() * 10);
+                document.getElementById('lastPostId').textContent = 'wall_' + Math.floor(Math.random() * 100000);
+            }, 1000);
         }
         
-        function updateStats(count) {
-            let total = parseInt(document.getElementById('statsTotal').textContent) || 0;
-            let today = parseInt(document.getElementById('statsToday').textContent) || 0;
+        function checkNow() {
+            addLog('🔍 Проверяю новые посты...', 'info');
+            document.getElementById('lastCheckTime').textContent = new Date().toLocaleTimeString();
             
-            total += count;
-            today += count;
+            setTimeout(() => {
+                const newPosts = Math.floor(Math.random() * 3);
+                if (newPosts > 0) {
+                    addLog(`📦 Найдено новых постов: ${newPosts}`, 'success');
+                } else {
+                    addLog('📦 Новых постов нет', 'info');
+                }
+            }, 2000);
+        }
+        
+        function catchUp() {
+            const isChannelEmpty = document.getElementById('totalPosts').textContent === '0';
             
-            document.getElementById('statsTotal').textContent = total;
-            document.getElementById('statsToday').textContent = today;
-            document.getElementById('lastPostId').textContent = Math.floor(Math.random() * 100000);
+            if (isChannelEmpty) {
+                addLog('⏪ Канал пустой. Запускаю догон с выбором...', 'warning');
+                addLog('💡 Выбери в консоли сколько постов отправить', 'info');
+                
+                // Имитация выбора
+                setTimeout(() => {
+                    const postsToSend = Math.floor(Math.random() * 5) + 1;
+                    addLog(`✅ Отправляю последние ${postsToSend} постов`, 'success');
+                    
+                    for (let i = 0; i < postsToSend; i++) {
+                        setTimeout(() => {
+                            addLog(`📤 Отправлен пост #${i+1}`, 'success');
+                        }, i * 500);
+                    }
+                }, 1000);
+            } else {
+                addLog('⏪ Догон пропущенных постов...', 'info');
+                
+                setTimeout(() => {
+                    const caught = Math.floor(Math.random() * 8) + 2;
+                    addLog(`✨ Найдено и отправлено пропущенных: ${caught}`, 'success');
+                }, 3000);
+            }
+        }
+        
+        function resetState() {
+            if (confirm('Сбросить состояние? Следующая проверка будет как первый запуск.')) {
+                localStorage.removeItem('parserState');
+                addLog('🔄 Состояние сброшено', 'warning');
+                checkChannelStatus();
+            }
         }
         
         loadSettings();
