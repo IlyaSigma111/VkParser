@@ -45,120 +45,137 @@ class VKtoTGParser:
             self.log(f"Ошибка сохранения: {e}", "ERROR")
     
     def get_vk_posts(self):
-        """Парсит посты из ВК с улучшенным поиском"""
+        """Парсит посты из ВК с расширенным поиском"""
         self.log(f"Парсинг ВК: https://vk.com/{VK_GROUP}")
         posts = []
         
         try:
-            # Пробуем разные варианты URL
-            urls = [
-                f"https://vk.com/{VK_GROUP}",
-                f"https://m.vk.com/{VK_GROUP}",  # мобильная версия
-                f"https://vk.com/public{VK_GROUP}" if VK_GROUP.isdigit() else None
-            ]
+            url = f"https://vk.com/{VK_GROUP}"
+            self.log(f"Загрузка: {url}")
+            response = self.session.get(url, timeout=15)
             
-            html = None
-            for url in urls:
-                if not url: continue
-                try:
-                    self.log(f"Пробуем: {url}")
-                    response = self.session.get(url, timeout=10)
-                    if response.status_code == 200:
-                        html = response.text
-                        self.log(f"✅ Загружено: {url}")
-                        break
-                except:
-                    continue
-            
-            if not html:
-                self.log("❌ Не удалось загрузить страницу", "ERROR")
+            if response.status_code != 200:
+                self.log(f"Ошибка загрузки: {response.status_code}", "ERROR")
                 return []
+            
+            html = response.text
+            self.log(f"Страница загружена, размер: {len(html)} байт")
+            
+            # Сохраняем для отладки
+            with open('debug.html', 'w', encoding='utf-8') as f:
+                f.write(html)
+            self.log("📁 debug.html сохранен")
             
             soup = BeautifulSoup(html, 'html.parser')
             
-            # Разные селекторы для поиска постов
-            selectors = [
-                'div.post',
-                'div[data-post-id]',
-                'div.wall_post',
-                'div._post_content',
-                'div.page_block'
-            ]
+            # ПОИСК ПОСТОВ - РАСШИРЕННЫЙ
+            all_possible_posts = []
             
-            post_elements = []
-            for selector in selectors:
-                post_elements = soup.select(selector)
-                if post_elements:
-                    self.log(f"✅ Найдено постов по селектору '{selector}': {len(post_elements)}")
-                    break
+            # 1. Классические посты
+            all_possible_posts.extend(soup.find_all('div', {'class': 'post'}))
+            all_possible_posts.extend(soup.find_all('div', {'class': 'wall_post'}))
+            all_possible_posts.extend(soup.find_all('div', {'class': '_post_content'}))
             
-            if not post_elements:
-                self.log("❌ Посты не найдены", "ERROR")
-                # Сохраняем HTML для отладки
-                with open('debug.html', 'w', encoding='utf-8') as f:
-                    f.write(html)
-                self.log("📁 HTML сохранен в debug.html для анализа")
-                return []
+            # 2. По data-атрибутам
+            all_possible_posts.extend(soup.find_all('div', {'data-post-id': True}))
             
-            for post in post_elements[:20]:
+            # 3. По id
+            for div in soup.find_all('div', id=True):
+                if 'post' in div['id'] or 'wall' in div['id']:
+                    all_possible_posts.append(div)
+            
+            # 4. Все блоки с постами
+            all_possible_posts.extend(soup.find_all('div', {'class': 'page_block'}))
+            
+            self.log(f"Найдено потенциальных постов: {len(all_possible_posts)}")
+            
+            # Убираем дубликаты
+            seen = set()
+            unique_posts = []
+            for post in all_possible_posts:
+                post_hash = hash(str(post)[:200])
+                if post_hash not in seen:
+                    seen.add(post_hash)
+                    unique_posts.append(post)
+            
+            self.log(f"Уникальных постов: {len(unique_posts)}")
+            
+            # Парсим каждый
+            for i, post in enumerate(unique_posts[:30]):
                 try:
-                    post_data = self.parse_post(post)
+                    post_data = self.parse_post_element(post)
                     if post_data:
                         posts.append(post_data)
+                        self.log(f"✅ Пост {i+1}: ID={post_data['id']}")
                 except Exception as e:
+                    self.log(f"Ошибка парсинга поста {i}: {e}", "ERROR")
                     continue
             
             # Сортируем по ID
             posts.sort(key=lambda x: x['id'], reverse=True)
-            self.log(f"📦 Всего постов: {len(posts)}")
+            self.log(f"✅ Всего постов после парсинга: {len(posts)}")
             
             if posts:
-                self.log(f"📌 Последний ID: {posts[0]['id']}")
-                self.log(f"📌 Последний текст: {posts[0]['text'][:50]}...")
+                self.log(f"📌 Первый пост ID: {posts[0]['id']}")
+                self.log(f"📌 Первый пост текст: {posts[0]['text'][:50]}...")
             
         except Exception as e:
             self.log(f"❌ Ошибка: {e}", "ERROR")
         
         return posts
     
-    def parse_post(self, post_element):
-        """Парсит один пост"""
-        # ID поста
+    def parse_post_element(self, element):
+        """Парсит элемент поста"""
+        # ID поста - ищем всеми способами
         post_id = None
         
         # Из data-post-id
-        if post_element.get('data-post-id'):
-            post_id = post_element.get('data-post-id')
+        if element.get('data-post-id'):
+            post_id = element.get('data-post-id')
         
         # Из ссылки
         if not post_id:
-            link = post_element.find('a', {'class': 'post_link'})
-            if link and link.get('href'):
-                match = re.search(r'wall(-?\d+_\d+)', link['href'])
-                if match:
-                    post_id = match.group(1)
+            link = element.find('a', href=True)
+            if link:
+                # Ищем wall-ссылки
+                wall_match = re.search(r'wall(-?\d+_\d+)', link['href'])
+                if wall_match:
+                    post_id = wall_match.group(1)
+                
+                # Ищем /wall-...
+                if not post_id:
+                    wall_match2 = re.search(r'/wall(-?\d+_\d+)', link['href'])
+                    if wall_match2:
+                        post_id = wall_match2.group(1)
         
         # Из id элемента
-        if not post_id and post_element.get('id'):
-            match = re.search(r'post(\d+)_(\d+)', post_element.get('id'))
-            if match:
-                post_id = f"{match.group(1)}_{match.group(2)}"
+        if not post_id and element.get('id'):
+            id_match = re.search(r'post(\d+)_(\d+)', element.get('id'))
+            if id_match:
+                post_id = f"{id_match.group(1)}_{id_match.group(2)}"
         
         if not post_id:
             return None
         
-        # Текст
+        # Текст поста
         text = ""
-        text_selectors = ['div.wall_post_text', 'div.post_text', 'div._post_content']
+        text_selectors = [
+            'div.wall_post_text',
+            'div.post_text',
+            'div._post_content',
+            'div[class*="wall"] div[class*="text"]',
+            'div[class*="post"] div[class*="text"]'
+        ]
+        
         for selector in text_selectors:
-            text_elem = post_element.select_one(selector)
+            text_elem = element.select_one(selector)
             if text_elem:
                 text = text_elem.get_text(strip=True)
                 break
         
         # Фото
         photos = []
-        for img in post_element.find_all('img'):
+        for img in element.find_all('img'):
             src = img.get('src', '')
             if 'vk.com' in src or 'userapi.com' in src:
                 clean_url = src.split('?')[0]
@@ -179,7 +196,7 @@ class VKtoTGParser:
         try:
             if post['photos']:
                 media = []
-                for i, photo in enumerate(post['photos']):
+                for i, photo in enumerate(post['photos'][:10]):
                     media.append({
                         'type': 'photo',
                         'media': photo
@@ -266,7 +283,8 @@ class VKtoTGParser:
         self.log(f"📦 Всего постов: {len(posts)}")
         
         sent = 0
-        for post in reversed(posts[:10]):
+        for i, post in enumerate(reversed(posts[:15])):
+            self.log(f"📤 Отправка {i+1}/{min(15, len(posts))}: {post['id']}")
             if self.send_to_telegram(post):
                 sent += 1
                 self.save_state(post['id'])
@@ -284,7 +302,7 @@ class VKtoTGParser:
         """Тест Telegram"""
         self.log("🔍 ТЕСТ TELEGRAM")
         
-        test_text = f"✅ Тест от парсера VK→TG\n\nВремя: {datetime.now().strftime('%H:%M:%S')}\nГруппа: {VK_GROUP}"
+        test_text = f"✅ Тест от парсера VK→TG\nВремя: {datetime.now().strftime('%H:%M:%S')}"
         
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         data = {'chat_id': TG_CHANNEL, 'text': test_text}
