@@ -1,4 +1,4 @@
-name: VK Parser Manual Control
+name: VK Parser Manual
 
 on:
   workflow_dispatch:
@@ -6,15 +6,10 @@ on:
       command:
         description: 'Команда'
         required: true
-        default: 'check'
-        type: choice
-        options:
-          - check
-          - catchup
-          - reset
+        type: string
 
 jobs:
-  run-parser:
+  run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
